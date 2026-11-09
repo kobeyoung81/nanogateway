@@ -91,7 +91,7 @@ nanogateway version                      # Print version info
 
 ## Configuration
 
-Loaded from the bus at startup via `GetConfigItems("gateway")` (seeded by `nanobus config seed` and editable in the portal → Configs).
+Loaded from the bus at startup via `GetConfigItems("gateway")` (seeded by `nanoadmin config seed` and editable in the portal → Configs).
 
 ```json
 {
@@ -110,7 +110,7 @@ Loaded from the bus at startup via `GetConfigItems("gateway")` (seeded by `nanob
 Environment prefix: `NANOSEC_GATEWAY_` (e.g., `NANOSEC_GATEWAY_BUS_URL`). The `auth.jwksUrl` item enables JWT validation for the web channel.
 
 > The web channel is **enabled by default** (`channels.web.enabled=true`, seeded by
-> `nanobus config seed`). It validates browser tokens through the bus
+> `nanoadmin config seed`). It validates browser tokens through the bus
 > (`validate_token` → nanoauth) and lists agents via the bus `list_agents` RPC, so the
 > portal Chat page works out of the box when the gateway publishes port `8080`.
 
