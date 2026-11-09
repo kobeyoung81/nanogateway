@@ -46,7 +46,7 @@ and outbound message delivery.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			resolvedBusURL := config.ResolveBusURL(busURL)
 
-			cfg, err := config.LoadGatewayConfig(resolvedBusURL)
+			cfg, err := config.LoadGatewayConfig(config.AdminURL())
 			if err != nil {
 				return fmt.Errorf("load config: %w", err)
 			}
