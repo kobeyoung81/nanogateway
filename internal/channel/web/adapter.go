@@ -18,6 +18,7 @@ import (
 	"gitee.com/kobeyoung81/nanogateway/internal/channel"
 	"gitee.com/kobeyoung81/nanogateway/internal/config"
 	"gitee.com/kobeyoung81/nanogateway/internal/gateway"
+	"gitee.com/kobeyoung81/nanogateway/internal/portalclient"
 	"gitee.com/kobeyoung81/nanoprotocol"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -228,7 +229,7 @@ func (a *Adapter) handleListAgents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	agents, err := client.ListAgents(validated.UserID)
+	agents, err := portalclient.Default().ListAgents(validated.UserID)
 	if err != nil {
 		http.Error(w, `{"error":"list agents failed"}`, http.StatusInternalServerError)
 		return
@@ -270,7 +271,7 @@ func (a *Adapter) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 	resumed := sessionID != ""
 	chatID := ""
 	if sessionID != "" {
-		rec, err := busClient.GetSessionMeta(sessionID)
+		rec, err := portalclient.Default().SessionMeta(sessionID)
 		if err != nil {
 			busClient.Close()
 			slog.Warn("web session lookup failed", "session_id", sessionID, "error", err)

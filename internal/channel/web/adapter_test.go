@@ -51,6 +51,43 @@ func mockBusRPC(t *testing.T) *httptest.Server {
 	}))
 }
 
+// mockPortal stands in for the portal's internal API: the two reads the adapter
+// makes now that the agent rows and the conversation projection live there.
+func mockPortal(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/internal/v1/agents":
+			if r.URL.Query().Get("user_id") != "user-1" {
+				t.Errorf("user_id = %q, want user-1", r.URL.Query().Get("user_id"))
+			}
+			json.NewEncoder(w).Encode(map[string]any{"agents": []map[string]any{{
+				"id": "assistant", "user_id": "user-1", "display_name": "Assistant",
+				"status": "active", "group_id": "group-1",
+			}}})
+		case strings.HasPrefix(r.URL.Path, "/internal/v1/sessions/"):
+			sessionID := strings.TrimPrefix(r.URL.Path, "/internal/v1/sessions/")
+			if sessionID != "web:chat-123" {
+				http.NotFound(w, r)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{
+				"session_id": sessionID,
+				"agent_id":   "assistant",
+				"account_id": "user-1",
+				"channel":    "web",
+				"chat_id":    "chat-123",
+				"status":     "active",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	t.Setenv("NANOSEC_PORTAL_URL", srv.URL)
+	return srv
+}
+
 func freePort(t *testing.T) string {
 	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -126,6 +163,7 @@ func TestAdapter_WebSocketAgentFlow(t *testing.T) {
 }
 
 func TestAdapter_ListAgents(t *testing.T) {
+	mockPortal(t)
 	bus := mockBusRPC(t)
 	defer bus.Close()
 
@@ -249,6 +287,7 @@ func mockBusWithSession(t *testing.T) *httptest.Server {
 }
 
 func TestAdapter_WebSocketResumeSession(t *testing.T) {
+	mockPortal(t)
 	bus := mockBusWithSession(t)
 	defer bus.Close()
 
@@ -331,6 +370,7 @@ func TestAdapter_WebSocketResumeSessionDenied(t *testing.T) {
 // "last registered" connection left the others silent — in the UI their turn
 // looked like it was still running forever because the completion never arrived.
 func TestAdapter_WebSocketFanOutToAllConnections(t *testing.T) {
+	mockPortal(t)
 	bus := mockBusWithSession(t)
 	defer bus.Close()
 
@@ -412,6 +452,7 @@ func TestAdapter_WebSocketFanOutToAllConnections(t *testing.T) {
 // summary chunks. It used to be dropped here, so the divider stayed empty until
 // the page was reloaded.
 func TestAdapter_CompleteCarriesCompactionSummary(t *testing.T) {
+	mockPortal(t)
 	bus := mockBusWithSession(t)
 	defer bus.Close()
 
