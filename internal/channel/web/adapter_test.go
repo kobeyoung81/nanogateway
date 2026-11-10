@@ -38,13 +38,6 @@ func mockBusRPC(t *testing.T) *httptest.Server {
 				Role:   "user",
 			})
 			json.NewEncoder(w).Encode(resp)
-		case nanoprotocol.TypeListAgents:
-			resp, _ := nanoprotocol.NewMessage(nanoprotocol.TypeAgentsListed, nanoprotocol.ListAgentsResponse{
-				Agents: []nanoprotocol.AgentInfo{
-					{ID: "assistant", UserID: "user-1", DisplayName: "Assistant", Status: "active", GroupID: "group-1"},
-				},
-			})
-			json.NewEncoder(w).Encode(resp)
 		default:
 			json.NewEncoder(w).Encode(nanoprotocol.NewErrorMessage("unsupported: " + msg.Type))
 		}
