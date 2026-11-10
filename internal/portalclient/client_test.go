@@ -72,3 +72,45 @@ func TestListAgentsKeepsTheWireShape(t *testing.T) {
 		t.Fatalf("display name lost: %+v", agents[0])
 	}
 }
+
+// The binding's default agent comes from the portal now (it owns the agents and
+// the preference). An empty answer is not an error: a binding whose owner has no
+// agent yet simply has no default.
+func TestBindingAgent(t *testing.T) {
+	var gotPath, gotToken string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotToken = r.Header.Get("Authorization")
+		_, _ = io.WriteString(w, `{"binding_id":7,"agent_id":"agent-1"}`)
+	}))
+	defer srv.Close()
+
+	agentID, err := New(srv.URL, "s3cret").BindingAgent(7)
+	if err != nil {
+		t.Fatalf("BindingAgent: %v", err)
+	}
+	if gotPath != "/internal/v1/bindings/7/agent" {
+		t.Fatalf("path = %q", gotPath)
+	}
+	if gotToken != "Bearer s3cret" {
+		t.Fatalf("token = %q", gotToken)
+	}
+	if agentID != "agent-1" {
+		t.Fatalf("agent = %q", agentID)
+	}
+}
+
+func TestBindingAgentWithoutAPreference(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"binding_id":7,"agent_id":""}`)
+	}))
+	defer srv.Close()
+
+	agentID, err := New(srv.URL, "").BindingAgent(7)
+	if err != nil {
+		t.Fatalf("BindingAgent: %v", err)
+	}
+	if agentID != "" {
+		t.Fatalf("agent = %q, want empty", agentID)
+	}
+}

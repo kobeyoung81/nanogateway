@@ -16,6 +16,7 @@ import (
 	"gitee.com/kobeyoung81/nanogateway/internal/auth"
 	"gitee.com/kobeyoung81/nanogateway/internal/channel"
 	"gitee.com/kobeyoung81/nanogateway/internal/config"
+	"gitee.com/kobeyoung81/nanogateway/internal/portalclient"
 	"gitee.com/kobeyoung81/nanoprotocol"
 	"github.com/google/uuid"
 )
@@ -106,7 +107,7 @@ func (g *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage)
 	// cli) talk to the binding's default agent (explicit preference, else the
 	// owner's first active agent). The web channel always names an agent.
 	if msg.AgentID == "" && resolved.BindingID > 0 {
-		agentID, err := client.GetBindingAgent(resolved.BindingID)
+		agentID, err := portalclient.Default().BindingAgent(resolved.BindingID)
 		if err != nil {
 			slog.Warn("resolve binding agent failed", "binding_id", resolved.BindingID, "error", err)
 		} else if agentID != "" {

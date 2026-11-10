@@ -143,47 +143,6 @@ func (c *BusClient) ResolveUser(channel, senderID string) (*nanoprotocol.Resolve
 	}, nil
 }
 
-// GetBindingAgent asks the bus which agent a channel binding talks to by default.
-func (c *BusClient) GetBindingAgent(bindingID int64) (string, error) {
-	msg, err := nanoprotocol.NewMessage(nanoprotocol.TypeGetBindingAgent, nanoprotocol.GetBindingAgentRequest{
-		BindingID: bindingID,
-	})
-	if err != nil {
-		return "", err
-	}
-	resp, err := c.rpc(msg)
-	if err != nil {
-		return "", err
-	}
-	if resp.Type == nanoprotocol.TypeError {
-		return "", fmt.Errorf("get binding agent: %s", resp.Error)
-	}
-	var result nanoprotocol.GetBindingAgentResponse
-	if err := resp.DecodePayload(&result); err != nil {
-		return "", fmt.Errorf("decode binding agent response: %w", err)
-	}
-	return result.AgentID, nil
-}
-
-// SetBindingAgent assigns the default agent for a channel binding.
-func (c *BusClient) SetBindingAgent(bindingID int64, agentID string) error {
-	msg, err := nanoprotocol.NewMessage(nanoprotocol.TypeSetBindingAgent, nanoprotocol.SetBindingAgentRequest{
-		BindingID: bindingID,
-		AgentID:   agentID,
-	})
-	if err != nil {
-		return err
-	}
-	resp, err := c.rpc(msg)
-	if err != nil {
-		return err
-	}
-	if resp.Type == nanoprotocol.TypeError {
-		return fmt.Errorf("set binding agent: %s", resp.Error)
-	}
-	return nil
-}
-
 // ValidateToken asks the bus to validate a JWT (delegated to nanoauth).
 func (c *BusClient) ValidateToken(token string) (*nanoprotocol.ValidateTokenResponse, error) {
 	msg, err := nanoprotocol.NewMessage(nanoprotocol.TypeValidateToken, nanoprotocol.ValidateTokenRequest{Token: token})

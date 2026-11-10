@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -49,6 +50,18 @@ func (c *Client) ListAgents(userID string) ([]nanoprotocol.AgentInfo, error) {
 		out.Agents = []nanoprotocol.AgentInfo{}
 	}
 	return out.Agents, nil
+}
+
+// BindingAgent answers which agent a channel binding talks to. An empty id means
+// the binding's owner has no agent yet, which the caller treats as "no default".
+func (c *Client) BindingAgent(bindingID int64) (string, error) {
+	var out struct {
+		AgentID string `json:"agent_id"`
+	}
+	if err := c.get("/internal/v1/bindings/"+strconv.FormatInt(bindingID, 10)+"/agent", &out); err != nil {
+		return "", err
+	}
+	return out.AgentID, nil
 }
 
 // SessionMeta is a conversation's metadata without its history.
