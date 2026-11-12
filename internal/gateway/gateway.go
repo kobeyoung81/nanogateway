@@ -34,6 +34,12 @@ type Gateway struct {
 	// failed turns (batch channels only; the web channel renders its own).
 	// Optional — built-in per-language defaults apply when unset.
 	errorMessages map[string]string
+	// subs are the per-conversation outbound subscriptions (see
+	// conversations.go). The channel-wide stream remains as their fallback.
+	subs *conversationSubscriptions
+	// runCtx is the gateway's lifetime; conversation subscriptions outlive the
+	// inbound request that started them.
+	runCtx context.Context
 }
 
 // SetErrorMessages installs per-channel turn-failure notice templates.
@@ -55,12 +61,14 @@ func New(busURL string, channels []channel.Channel, ackEnabled bool, ackText str
 		ackEnabled:   ackEnabled,
 		ackText:      ackText,
 		jwtValidator: jwtValidator,
+		subs:         newConversationSubscriptions(200),
 	}
 }
 
 // Run starts the gateway service.
 func (g *Gateway) Run(ctx context.Context) error {
 	slog.Info("gateway started", "id", g.gatewayID, "channels", len(g.channels))
+	g.runCtx = ctx
 
 	go g.subscribeOutbound(ctx)
 
@@ -125,6 +133,15 @@ func (g *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage)
 		}
 	}
 
+	// Where the conversation currently ends. Taken *before* the message is
+	// posted: the reply must not replay the previous turn, and it must not miss
+	// the chunks emitted between the post and the subscription opening.
+	startCursor, cursorErr := g.conversationCursor(ctx, msg.Channel, msg.ChatID)
+	if cursorErr != nil {
+		slog.Warn("conversation cursor lookup failed", "channel", msg.Channel, "chat_id", msg.ChatID, "error", cursorErr)
+		startCursor = ""
+	}
+
 	err = client.PostInbound(nanoprotocol.InboundMessage{
 		UserID:    resolved.UserID,
 		BindingID: resolved.BindingID,
@@ -142,6 +159,14 @@ func (g *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage)
 	if err != nil {
 		return fmt.Errorf("post inbound: %w", err)
 	}
+
+	// A reply is coming: subscribe to this conversation before it streams, so
+	// the first chunk is not missed. The subscription closes on `complete`.
+	parent := g.runCtx
+	if parent == nil {
+		parent = context.Background()
+	}
+	g.ensureConversation(parent, msg.Channel, msg.ChatID, startCursor)
 
 	slog.Debug("posted inbound to bus", "user_id", resolved.UserID, "binding_id", resolved.BindingID, "channel", msg.Channel, "content_len", len(msg.Content))
 	return nil
@@ -247,8 +272,22 @@ func (g *Gateway) drainStream(ctx context.Context, ch channel.Channel, agg *chun
 	}
 }
 
-// deliverEvent dispatches a single SSE event to a channel adapter.
+// deliverEvent dispatches one event from the channel-wide stream. A
+// conversation with its own subscription is skipped: that stream delivers it,
+// and delivering twice would duplicate the reply.
 func (g *Gateway) deliverEvent(ctx context.Context, ch channel.Channel, agg *chunkAggregator, eventType, data string) {
+	var head struct {
+		ChatID string `json:"chat_id"`
+	}
+	_ = json.Unmarshal([]byte(data), &head)
+	if g.subs.active(ch.Name(), head.ChatID) {
+		return
+	}
+	g.dispatchEvent(ctx, ch, agg, eventType, data)
+}
+
+// dispatchEvent hands one event to the adapter.
+func (g *Gateway) dispatchEvent(ctx context.Context, ch channel.Channel, agg *chunkAggregator, eventType, data string) {
 	switch eventType {
 	case "chunk":
 		var chunk nanoprotocol.OutboundChunk
