@@ -490,26 +490,33 @@ func TestAdapter_CompleteCarriesCompactionSummary(t *testing.T) {
 	}
 }
 
-// The bus's terminal bridge is an internal endpoint, and a WebSocket handshake
-// built from a URL has no header, so the token travels as a query parameter.
-func TestTerminalBusURLCarriesTheInternalToken(t *testing.T) {
+// The terminal bridge is an internal endpoint, and a WebSocket handshake built
+// from a URL has no header, so the token travels as a query parameter on every
+// endpoint we try.
+func TestTerminalURLsCarryTheInternalToken(t *testing.T) {
 	t.Setenv("NANOSEC_BUS_INTERNAL_TOKEN", "s3cret")
 	adapter := &Adapter{busURL: "ws://nanobus:9000"}
 
-	parsed, err := url.Parse(adapter.terminalBusURL("user-1", "agent-1"))
-	if err != nil {
-		t.Fatalf("terminalBusURL: %v", err)
+	urls := adapter.terminalURLs("user-1", "agent-1")
+	if len(urls) != 2 {
+		t.Fatalf("expected the provisioner and the bus, got %v", urls)
 	}
-	if parsed.Path != "/ws/terminal" {
-		t.Errorf("path = %q", parsed.Path)
-	}
-	if got := parsed.Query().Get("token"); got != "s3cret" {
-		t.Errorf("token = %q, want the configured token", got)
-	}
-	if got := parsed.Query().Get("user_id"); got != "user-1" {
-		t.Errorf("user_id = %q", got)
-	}
-	if got := parsed.Query().Get("agent_id"); got != "agent-1" {
-		t.Errorf("agent_id = %q", got)
+	for _, raw := range urls {
+		parsed, err := url.Parse(raw)
+		if err != nil {
+			t.Fatalf("parse %q: %v", raw, err)
+		}
+		if parsed.Path != "/ws/terminal" {
+			t.Errorf("%s: path = %q", raw, parsed.Path)
+		}
+		if got := parsed.Query().Get("token"); got != "s3cret" {
+			t.Errorf("%s: token = %q, want the configured token", raw, got)
+		}
+		if got := parsed.Query().Get("user_id"); got != "user-1" {
+			t.Errorf("%s: user_id = %q", raw, got)
+		}
+		if got := parsed.Query().Get("agent_id"); got != "agent-1" {
+			t.Errorf("%s: agent_id = %q", raw, got)
+		}
 	}
 }

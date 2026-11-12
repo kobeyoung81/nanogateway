@@ -155,3 +155,70 @@ func TestToWSURL(t *testing.T) {
 		}
 	}
 }
+
+// TestTerminalURLs_ProvisionerFirstThenBus pins the rollout order: the
+// provisioner owns tunnels now, and the bus stays as the fallback for containers
+// whose image still dials it.
+func TestTerminalURLs_ProvisionerFirstThenBus(t *testing.T) {
+	t.Setenv("NANOSEC_PROVISIONER_URL", "http://runner.internal:8080")
+	a := New("ws://bus.internal:9000", "")
+
+	urls := a.terminalURLs("user-1", "agent-1")
+	if len(urls) != 2 {
+		t.Fatalf("expected provisioner then bus, got %v", urls)
+	}
+	if !strings.HasPrefix(urls[0], "ws://runner.internal:8080/ws/terminal?") {
+		t.Fatalf("the first endpoint is not the provisioner: %q", urls[0])
+	}
+	if !strings.HasPrefix(urls[1], "ws://bus.internal:9000/ws/terminal?") {
+		t.Fatalf("the fallback endpoint is not the bus: %q", urls[1])
+	}
+}
+
+// TestDialTerminal_FallsBackWhenTheFirstRefuses: a 404 from the provisioner means
+// "no tunnel registered here", and the bridge has to try the bus so a terminal
+// keeps working for containers that have not been restarted onto the new image.
+func TestDialTerminal_FallsBackWhenTheFirstRefuses(t *testing.T) {
+	refusing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"error":"tunnel is not registered"}`, http.StatusNotFound)
+	}))
+	defer refusing.Close()
+
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	accepting := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}))
+	defer accepting.Close()
+
+	conn, err := dialTerminal([]string{
+		toWSURL(refusing.URL) + "/ws/terminal",
+		toWSURL(accepting.URL) + "/ws/terminal",
+	})
+	if err != nil {
+		t.Fatalf("dialTerminal: %v", err)
+	}
+	_ = conn.Close()
+}
+
+// TestDialTerminal_ReportsTheLastFailure keeps a total outage from looking like
+// a successful dial.
+func TestDialTerminal_ReportsTheLastFailure(t *testing.T) {
+	refusing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "no", http.StatusNotFound)
+	}))
+	defer refusing.Close()
+
+	target := toWSURL(refusing.URL) + "/ws/terminal"
+	if _, err := dialTerminal([]string{target, target}); err == nil {
+		t.Fatal("dialTerminal reported success when both endpoints refused")
+	}
+}

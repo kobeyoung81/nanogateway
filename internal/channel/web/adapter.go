@@ -462,9 +462,9 @@ func (a *Adapter) handleAgentTerminalWS(w http.ResponseWriter, r *http.Request) 
 	}
 	defer browser.Close()
 
-	bus, _, err := websocket.DefaultDialer.Dial(a.terminalBusURL(validated.UserID, agentID), nil)
+	bus, err := dialTerminal(a.terminalURLs(validated.UserID, agentID))
 	if err != nil {
-		slog.Warn("terminal bus dial failed", "user_id", validated.UserID, "agent_id", agentID, "error", err)
+		slog.Warn("terminal dial failed", "user_id", validated.UserID, "agent_id", agentID, "error", err)
 		_ = browser.WriteJSON(terminalFrame{Type: "error", Message: "agent terminal unavailable"})
 		return
 	}
@@ -511,15 +511,39 @@ func (a *Adapter) handleAgentTerminalWS(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
-// terminalBusURL builds the bus terminal-bridge WebSocket URL. The token goes
-// in the query because a WebSocket handshake built from a URL has no header to
-// put it in.
-func (a *Adapter) terminalBusURL(userID, agentID string) string {
+// terminalURLs returns the bridge endpoints to try, in order. Tunnels terminate
+// at the provisioner now, so that is the first choice; the bus is the fallback
+// for containers whose image still dials it (they are replaced only when the
+// user restarts the agent). Once no such container remains, the second entry and
+// the bus's own bridge go away together.
+func (a *Adapter) terminalURLs(userID, agentID string) []string {
 	q := url.Values{"user_id": {userID}, "agent_id": {agentID}}
 	if token := config.InternalToken(); token != "" {
 		q.Set("token", token)
 	}
-	return toWSURL(a.busURL) + "/ws/terminal?" + q.Encode()
+	query := q.Encode()
+	return []string{
+		toWSURL(config.ProvisionerURL()) + "/ws/terminal?" + query,
+		toWSURL(a.busURL) + "/ws/terminal?" + query,
+	}
+}
+
+// dialTerminal connects to the first endpoint that accepts the handshake. A
+// 404 means "no tunnel registered here", which is exactly what the fallback is
+// for; any other failure is tried the same way and reported if all fail.
+func dialTerminal(urls []string) (*websocket.Conn, error) {
+	var lastErr error
+	for _, target := range urls {
+		conn, resp, err := websocket.DefaultDialer.Dial(target, nil)
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
+	}
+	return nil, lastErr
 }
 
 // terminalBrowserKeepalive pings the browser while the terminal is bridged.
