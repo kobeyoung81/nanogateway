@@ -191,7 +191,7 @@ func TestPkcs7Unpad(t *testing.T) {
 			want:  []byte{1, 2, 3},
 		},
 		{
-			name:  "valid padding 28 (wechat 32-byte block)",
+			name: "valid padding 28 (wechat 32-byte block)",
 			input: func() []byte {
 				data := []byte{1, 2, 3, 4}
 				for i := 0; i < 28; i++ {

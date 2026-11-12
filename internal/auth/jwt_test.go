@@ -39,12 +39,12 @@ func jwksServer(t *testing.T, privKey *rsa.PrivateKey, kid string) *httptest.Ser
 func signToken(t *testing.T, privKey *rsa.PrivateKey, kid, subject, role, tier string) string {
 	t.Helper()
 	claims := jwt.MapClaims{
-		"sub":   subject,
-		"role":  role,
-		"tier":  tier,
-		"iss":   "test-issuer",
-		"iat":   time.Now().Unix(),
-		"exp":   time.Now().Add(time.Hour).Unix(),
+		"sub":  subject,
+		"role": role,
+		"tier": tier,
+		"iss":  "test-issuer",
+		"iat":  time.Now().Unix(),
+		"exp":  time.Now().Add(time.Hour).Unix(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	token.Header["kid"] = kid
