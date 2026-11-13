@@ -110,6 +110,10 @@ func (a *Adapter) Start(ctx context.Context, handler channel.InboundHandler) err
 	a.onInbound = handler
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
 	mux.HandleFunc("GET /api/v1/agents", a.handleListAgents)
 	mux.HandleFunc("GET /ws/agent/{agentID}", a.handleAgentWS)
 	mux.HandleFunc("GET /ws/agent/{agentID}/terminal", a.handleAgentTerminalWS)
