@@ -26,6 +26,7 @@ import (
 
 	"gitee.com/kobeyoung81/nanogateway/internal/channel"
 	"gitee.com/kobeyoung81/nanogateway/internal/config"
+	"gitee.com/kobeyoung81/nanogateway/internal/metrics"
 )
 
 // conversationKey identifies one subscription.
@@ -162,6 +163,7 @@ func (g *Gateway) ensureConversation(parent context.Context, channelName, chatID
 		cancel()
 		return
 	}
+	metrics.Subscriptions.Inc()
 	go g.runConversationSubscription(ctx, ch, key, cancel, startCursor)
 }
 
@@ -171,6 +173,7 @@ func (g *Gateway) ensureConversation(parent context.Context, channelName, chatID
 // retention window loses nothing.
 func (g *Gateway) runConversationSubscription(ctx context.Context, ch channel.Channel, key conversationKey, cancel context.CancelFunc, startCursor string) {
 	defer g.subs.remove(key)
+	defer metrics.Subscriptions.Dec()
 	defer cancel()
 
 	agg := newChunkAggregator()
@@ -221,6 +224,7 @@ func (g *Gateway) runConversationSubscription(ctx context.Context, ch channel.Ch
 			return
 		}
 		if err != nil && ctx.Err() == nil {
+			metrics.SSEReconnects.WithLabelValues(key.channel).Inc()
 			slog.Warn("conversation stream ended, reconnecting", "channel", key.channel, "chat_id", key.chatID, "error", err)
 		}
 		select {

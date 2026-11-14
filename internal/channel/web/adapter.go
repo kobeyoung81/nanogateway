@@ -18,6 +18,7 @@ import (
 	"gitee.com/kobeyoung81/nanogateway/internal/channel"
 	"gitee.com/kobeyoung81/nanogateway/internal/config"
 	"gitee.com/kobeyoung81/nanogateway/internal/gateway"
+	"gitee.com/kobeyoung81/nanogateway/internal/metrics"
 	"gitee.com/kobeyoung81/nanogateway/internal/portalclient"
 	"gitee.com/kobeyoung81/nanoprotocol"
 	"github.com/google/uuid"
@@ -114,13 +115,16 @@ func (a *Adapter) Start(ctx context.Context, handler channel.InboundHandler) err
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
+	// Operational numbers, anonymous: a scraper is infrastructure. The gateway's
+	// public port is the only one nginx exposes, so /metrics lives here.
+	mux.Handle("GET /metrics", metrics.Handler())
 	mux.HandleFunc("GET /api/v1/agents", a.handleListAgents)
 	mux.HandleFunc("GET /ws/agent/{agentID}", a.handleAgentWS)
 	mux.HandleFunc("GET /ws/agent/{agentID}/terminal", a.handleAgentTerminalWS)
 
 	a.server = &http.Server{
 		Addr:    a.listenAddr,
-		Handler: withCORS(mux),
+		Handler: metrics.Middleware(withCORS(mux)),
 	}
 
 	errCh := make(chan error, 1)

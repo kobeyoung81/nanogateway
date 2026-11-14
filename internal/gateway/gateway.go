@@ -16,6 +16,7 @@ import (
 	"gitee.com/kobeyoung81/nanogateway/internal/auth"
 	"gitee.com/kobeyoung81/nanogateway/internal/channel"
 	"gitee.com/kobeyoung81/nanogateway/internal/config"
+	"gitee.com/kobeyoung81/nanogateway/internal/metrics"
 	"gitee.com/kobeyoung81/nanogateway/internal/portalclient"
 	"gitee.com/kobeyoung81/nanoprotocol"
 	"github.com/google/uuid"
@@ -159,6 +160,7 @@ func (g *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage)
 	if err != nil {
 		return fmt.Errorf("post inbound: %w", err)
 	}
+	metrics.InboundMessages.WithLabelValues(msg.Channel).Inc()
 
 	// A reply is coming: subscribe to this conversation before it streams, so
 	// the first chunk is not missed. The subscription closes on `complete`.
@@ -288,6 +290,7 @@ func (g *Gateway) deliverEvent(ctx context.Context, ch channel.Channel, agg *chu
 
 // dispatchEvent hands one event to the adapter.
 func (g *Gateway) dispatchEvent(ctx context.Context, ch channel.Channel, agg *chunkAggregator, eventType, data string) {
+	metrics.OutboundEvents.WithLabelValues(ch.Name(), eventType).Inc()
 	switch eventType {
 	case "chunk":
 		var chunk nanoprotocol.OutboundChunk
