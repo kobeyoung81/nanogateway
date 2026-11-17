@@ -3,7 +3,7 @@ module gitee.com/kobeyoung81/nanogateway
 go 1.24.0
 
 require (
-	gitee.com/kobeyoung81/nanoprotocol v0.46.0
+	gitee.com/kobeyoung81/nanoprotocol v0.47.0
 	github.com/golang-jwt/jwt/v5 v5.2.1
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
