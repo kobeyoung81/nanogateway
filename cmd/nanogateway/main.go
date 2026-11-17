@@ -32,6 +32,7 @@ var (
 
 func main() {
 	setupLogger()
+	web.Version = version
 
 	var busURL string
 	var message string

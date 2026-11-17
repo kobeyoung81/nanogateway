@@ -8,6 +8,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -113,7 +114,7 @@ func (a *Adapter) Start(ctx context.Context, handler channel.InboundHandler) err
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
+		_, _ = fmt.Fprintf(w, `{"status":"ok","version":%q}`, Version)
 	})
 	// Operational numbers, anonymous: a scraper is infrastructure. The gateway's
 	// public port is the only one nginx exposes, so /metrics lives here.
