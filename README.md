@@ -1,145 +1,94 @@
 # nanogateway
 
-Chat platform adapter service for MyriadMind.
+Every channel, one door: the adapters that turn a chat platform into the platform's
+own message shape.
 
-## Overview
+It is one of the eight first-class services. It owns no data — it authenticates,
+resolves who is talking, and hands the message to the bus.
 
-`nanogateway` connects to multiple chat platforms, routes inbound messages to the central bus (`nanobus`), polls / subscribes for outbound responses, and delivers them back to the correct platform. It handles user identity resolution, optional message acknowledgements, JWT authentication for the browser channel, and media attachment routing.
+## What it is
 
-## Architecture
+- **Five channels out of the box.** Web chat, WeCom, Feishu, WeChat customer
+  service and a CLI — each one an adapter behind the same interface.
+- **Identity resolution.** A platform identity becomes a user and a binding; a
+  first-time sender is onboarded on the spot.
+- **Three paths.** Inbound to the agent, outbound to the channel, and the streamed
+  path the web socket uses for a live answer.
+- **Acknowledgements that you can turn off.** One config item decides whether a
+  channel answers "received" before the agent starts thinking.
 
-```
-Chat Platforms:
-  CLI (stdin) -->  nanogateway  <--WebSocket/HTTP--> nanobus
-  WeCom       -->    |-- gateway/
-  Feishu      -->    |   |-- gateway.go (poll/outbound loop)
-  Web Chat    -->    |   |-- client.go  (BusClient)
-  WeChat KF   -->
-                     |-- channel/
-                          |-- channel.go  (Channel + StreamSender interfaces)
-                          |-- cli/         (stdin/stdout)
-                          |-- wecom/       (HTTP callback, go-workwx)
-                          |-- feishu/      (WebSocket, oapi-sdk-go)
-                          |-- web/         (browser WebSocket chat, JWT + streaming)
-                          |-- wechatkf/    (polling + HTTP callback)
-```
+## Where it sits
 
-## Supported Channels
+| | |
+|---|---|
+| Collections | none — the gateway stores nothing |
+| Port | `8080` in the network, `14402` on the host (loopback) |
+| Upstream | the chat platforms, and the browser for web chat |
+| Downstream | `nanobus` (messages), `nanoadmin` (channel configuration), `nanoportal` (who owns an agent), `nanoauth` (token validation) |
+| Health | `GET /healthz` and `GET /metrics` on the same port |
 
-| Channel | Name | Protocol | Description |
-|---------|------|----------|-------------|
-| CLI | `cli` | stdin/stdout | Interactive development mode, one-shot via `--message` |
-| WeCom | `wecom` | HTTP callback | Enterprise WeChat (go-workwx fork) |
-| Feishu | `feishu` | WebSocket | Lark/Feishu (oapi-sdk-go/v3) |
-| Web Chat | `web` | WebSocket | Authenticated browser chat with streaming (JWT via JWKS) |
-| WeChat KF | `wechatkf` | Polling + HTTP | WeChat Customer Service with cursor-based sync |
-
-## Message Flow
-
-### Inbound (User -> Agent)
-1. Channel adapter receives message from platform
-2. `ResolveUser(channel, senderID)` -> bus returns `{userID, bindingID, isNew}`
-3. Gateway posts `InboundMessage` with `userID`, `bindingID`, content, media to bus
-
-### Outbound (Agent -> User)
-1. Gateway polls bus every 500ms per channel: `PollOutbound(channel, gatewayID)` (SSE subscription for streaming channels)
-2. Bus returns claimed `OutboundMessage` (atomically claimed via `FOR UPDATE`)
-3. Gateway calls `ch.Send()` on the matching channel adapter
-
-### Streaming (Web Chat)
-The web channel implements `StreamSender` (`SendChunk` / `SendComplete`) so the agent's
-streaming tokens are forwarded to the browser in near-real-time.
-
-### Acknowledgement
-Optional ack text sent immediately when an inbound message is received:
-```json
-{ "ack": { "enabled": true, "text": "Message received, processing..." } }
-```
-
-## Channel Interface
-
-```go
-type Channel interface {
-    Name() string
-    Start(ctx context.Context, handler InboundHandler) error
-    Send(ctx context.Context, msg OutboundMessage) error
-    Stop() error
-}
-
-// Optional for streaming delivery (e.g. the browser WebSocket channel).
-type StreamSender interface {
-    SendChunk(ctx context.Context, chunk nanoprotocol.OutboundChunk) error
-    SendComplete(ctx context.Context, complete nanoprotocol.OutboundComplete) error
-}
-```
-
-## Adding a New Channel
-
-1. Create `internal/channel/<name>/adapter.go`
-2. Implement the `Channel` interface
-3. Add config struct to `internal/config/config.go`
-4. Wire it up in `cmd/nanogateway/main.go`
-
-## CLI Reference
+## Quick start
 
 ```bash
-nanogateway                              # Start gateway with configured channels
-nanogateway --bus-url ws://bus:9000      # Specify bus URL
-nanogateway --message "Hello"            # One-shot CLI mode (sends and exits)
-nanogateway version                      # Print version info
+go build ./cmd/nanogateway
+NANOSEC_GATEWAY_BUS_URL="http://localhost:9000" \
+NANOSEC_BUS_INTERNAL_TOKEN="…" \
+  ./nanogateway
+```
+
+At least one channel has to be enabled in `admin_config`, or the gateway exits with
+"no channels enabled". The web channel is on by default. For a one-shot smoke test,
+the CLI channel sends a single message and exits:
+
+```bash
+./nanogateway --bus-url http://localhost:9000 --message "hello"
 ```
 
 ## Configuration
 
-Loaded from the bus at startup via `GetConfigItems("gateway")` (seeded by `nanoadmin config seed` and editable in the portal → Configs).
+| Variable | Meaning |
+|---|---|
+| `NANOSEC_GATEWAY_BUS_URL` | The bus, HTTP and WebSocket |
+| `NANOSEC_BUS_INTERNAL_TOKEN` | Shared secret for the bus's internal surfaces |
+| `NANOSEC_ADMIN_URL` | Where the channel configuration is read |
+| `NANOSEC_PORTAL_URL` | Where agent rows and the conversation projection live |
+| `NANOSEC_PROVISIONER_URL` | Where tunnels terminate (the terminal bridge dials it first) |
+| `NANOAUTH_JWKS_URL` | Key set the web channel validates browser tokens against |
 
-```json
-{
-  "channels": {
-    "cli": { "enabled": true, "userID": "alice" },
-    "wecom": { "enabled": false, "corpID": "", "corpSecret": "", "agentID": 0, "token": "", "encodingAESKey": "", "callbackAddr": ":8081" },
-    "feishu": { "enabled": false, "appID": "", "appSecret": "", "encryptKey": "", "verificationToken": "" },
-    "web": { "enabled": true, "listenAddr": ":8080" },
-    "wechatkf": { "enabled": false, "corpID": "", "kfSecret": "", "openKfID": "", "token": "", "encodingAESKey": "", "callbackAddr": ":8082" }
-  },
-  "ack": { "enabled": false, "text": "Message received, processing..." },
-  "auth": { "jwksUrl": "http://nanoauth:8081/auth/v1/.well-known/jwks" }
-}
-```
+Channel secrets are not environment variables: they live in `admin_config` under
+`channels.<name>.*` (corp id, app secret, callback token, encoding key) and are
+edited in the console.
 
-Environment prefix: `NANOSEC_GATEWAY_` (e.g., `NANOSEC_GATEWAY_BUS_URL`). The `auth.jwksUrl` item enables JWT validation for the web channel.
+## Design decisions
 
-> The web channel is **enabled by default** (`channels.web.enabled=true`, seeded by
-> `nanoadmin config seed`). It validates browser tokens through the bus
-> (`validate_token` → nanoauth) and lists agents via the bus `list_agents` RPC, so the
-> portal Chat page works out of the box when the gateway publishes port `8080`.
+- **One interface, five adapters.** A channel implements receive, send and stream;
+  everything else — deduplication, acknowledgement, the outbound poll — is shared.
+- **The gateway does not own state.** Reconnects rebuild from the bus's cursor, so
+  any replica can serve any conversation.
+- **Only the web channel authenticates browsers.** The other four trust the platform
+  signature; the web channel validates the JWT against nanoauth's JWKS.
+- **Streaming is SSE, not polling.** The console subscribes; the gateway forwards
+  what the bus already wrote.
 
-## Deployment
+## Docs
 
-### Docker
-```bash
-docker build -t nanogateway .
-docker run nanogateway --bus-url ws://nanobus:9000
-```
+- [`docs/ARCHITECTURE.md`](https://gitee.com/kobeyoung81/nanosec/blob/master/docs/ARCHITECTURE.md) — the platform around this module
+- [`docs/DEPLOYMENT.md`](https://gitee.com/kobeyoung81/nanosec/blob/master/docs/DEPLOYMENT.md) — ports and operations
+- [`docs/README.md`](https://gitee.com/kobeyoung81/nanosec/blob/master/docs/README.md) — every document
 
-### Docker Compose
-Part of top-level `docker-compose.yml`. Configure at least one channel in the bus
-config items first, otherwise the process exits with "no channels enabled".
+## Status
 
-### Standalone
-```bash
-go build ./cmd/nanogateway
-./nanogateway --bus-url ws://localhost:9000
-```
+Released as part of `v0.1.0`; the version of this module is pinned in the
+super-repo's `versions.lock`.
 
-## Packages
+## Contributing and security
 
-| Package | Purpose |
-|---------|---------|
-| `cmd/nanogateway` | CLI entry point |
-| `internal/gateway` | Gateway loop, outbound polling, BusClient |
-| `internal/channel` | Channel + StreamSender interfaces, 5 adapter implementations |
-| `internal/auth` | JWKS validator for the web channel |
-| `internal/config` | Configuration types and bus-backed loader |
-| `internal/log` | Custom slog log level |
-| `go-workwx/` | Vendored WeCom API fork |
+[`CONTRIBUTING.md`](https://gitee.com/kobeyoung81/nanosec/blob/master/CONTRIBUTING.md)
+for setup and commit rules; report vulnerabilities privately through
+[`SECURITY.md`](https://gitee.com/kobeyoung81/nanosec/blob/master/SECURITY.md), never
+in a public issue.
+
+## License
+
+[AGPL-3.0](./LICENSE). The name and logo are covered separately — see
+[`NOTICE`](./NOTICE).
