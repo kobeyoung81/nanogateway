@@ -1,12 +1,11 @@
-FROM golang:1.24-alpine AS builder
+FROM kobeyoung81/base-go:1.27.4-alpine3.24-r2 AS builder
 
 WORKDIR /src
-RUN go env -w GO111MODULE=on
-RUN go env -w GOPROXY=https://goproxy.cn,direct
-RUN apk add --no-cache git
 COPY go.mod go.sum ./
 COPY go-workwx/ ./go-workwx/
-RUN go mod download
+RUN --mount=type=cache,id=nanosec-gomod,target=/root/go/pkg/mod \
+    --mount=type=cache,id=nanosec-gocache,target=/root/.cache/go-build \
+    go mod download
 
 COPY . .
 
@@ -15,9 +14,11 @@ ARG COMMIT=none
 ARG BUILD_DATE=unknown
 ARG LDFLAGS="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${BUILD_DATE}"
 
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "${LDFLAGS}" -o /bin/nanogateway ./cmd/nanogateway
+RUN --mount=type=cache,id=nanosec-gomod,target=/root/go/pkg/mod \
+    --mount=type=cache,id=nanosec-gocache,target=/root/.cache/go-build \
+    go build -trimpath -ldflags "${LDFLAGS}" -o /bin/nanogateway ./cmd/nanogateway
 
-FROM alpine:3.19
+FROM kobeyoung81/base-runtime:alpine3.24.4-r2
 
 # Build metadata. All three come from the tagged commit (the version tag, the
 # commit sha, and that commit's time), so two builds of one tag describe the same
@@ -31,9 +32,6 @@ LABEL org.opencontainers.image.title="nanogateway" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.source="https://gitee.com/kobeyoung81/nanogateway" \
       org.opencontainers.image.licenses="AGPL-3.0-only"
-
-
-RUN apk add --no-cache ca-certificates tzdata
 
 COPY --from=builder /bin/nanogateway /usr/local/bin/nanogateway
 
