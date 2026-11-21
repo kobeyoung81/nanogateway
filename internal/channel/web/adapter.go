@@ -369,6 +369,15 @@ func (a *Adapter) readLoop(c *client) {
 				continue
 			}
 			a.dispatch(c, msg.Content, msg.Metadata, msg.Media)
+		case "ping":
+			// Liveness probe from the page. A browser cannot observe the
+			// WebSocket pong control frame, so an idle chat proves its socket
+			// with this instead: a page that gets no answer closes the
+			// connection and reconnects, which is what stops "I had to refresh
+			// before I could send".
+			if err := c.write(wsEvent{Type: "pong"}); err != nil {
+				return
+			}
 		}
 	}
 }

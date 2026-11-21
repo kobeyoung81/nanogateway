@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -152,6 +153,54 @@ func TestAdapter_WebSocketAgentFlow(t *testing.T) {
 	}
 	if captured.Channel != "web" {
 		t.Errorf("channel = %q, want web", captured.Channel)
+	}
+}
+
+func TestAdapter_WebSocketPingAnswersPongWithoutDispatch(t *testing.T) {
+	bus := mockBusRPC(t)
+	defer bus.Close()
+
+	addr := freePort(t)
+	adapter := New(bus.URL, addr)
+
+	var dispatched atomic.Int32
+	handler := func(context.Context, channel.InboundMessage) error {
+		dispatched.Add(1)
+		return nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go adapter.Start(ctx, handler)
+	time.Sleep(100 * time.Millisecond)
+
+	conn, _, err := websocket.DefaultDialer.Dial("ws://"+addr+"/ws/agent/assistant?token=test-token", nil)
+	if err != nil {
+		t.Fatalf("dial ws: %v", err)
+	}
+	defer conn.Close()
+
+	var ready wsEvent
+	if err := conn.ReadJSON(&ready); err != nil {
+		t.Fatalf("read ready: %v", err)
+	}
+
+	if err := conn.WriteJSON(wsMessage{Type: "ping"}); err != nil {
+		t.Fatalf("write ping: %v", err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	var pong wsEvent
+	if err := conn.ReadJSON(&pong); err != nil {
+		t.Fatalf("read pong: %v", err)
+	}
+	if pong.Type != "pong" {
+		t.Fatalf("answer to ping = %q, want pong", pong.Type)
+	}
+
+	// A probe is not a message: nothing may reach the bus.
+	time.Sleep(100 * time.Millisecond)
+	if got := dispatched.Load(); got != 0 {
+		t.Fatalf("ping dispatched %d inbound message(s), want 0", got)
 	}
 }
 
